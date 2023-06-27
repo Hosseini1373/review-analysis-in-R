@@ -1,0 +1,385 @@
+---
+title: "Semester Task"
+author: "Sayyed Ahmad Hosseini, Astrit Zyberaj"
+date: "15/11/2021"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+
+
+
+
+
+# Different sections of Analysis{.tabset}
+
+## Description of dataset
+
+### Context
+
+While many public datasets (on Kaggle and the like) provide Apple App Store data, there are not many counterpart datasets available for Google Play Store apps anywhere on the web. It is because, iTunes App Store page deploys a nicely indexed appendix-like structure to allow for simple and easy web scraping. On the other hand, Google Play Store uses sophisticated modern-day techniques (like dynamic page load) using JQuery making scraping more challenging.
+Content
+
+Each app (row) has values for category, rating, size, and more.
+
+### Acknowledgements
+
+All information is scraped from the Google Play Store. I downloaded this dataset from Kaggle.com
+
+### Inspiration
+
+The Play Store apps data has enormous potential to drive app-making businesses to success. Actionable insights can be drawn for developers to work on and capture the Android market!
+
+
+***
+
+
+
+
+## Loading the dataset 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Summary of information on each column:
+* Are they numeric?
+* If numeric, what is min, max, and quartiles
+* Are there any NAs?
+```{r}
+googleplaystore <- read.csv("~/Studium/Data-Science-General/HS2021/EXPD/Projects/googleplaystore/googleplaystore.csv", na.strings="NaN")
+playstore<-as.data.frame(googleplaystore)
+summary(playstore)
+```
+### The first 10 lines of dataset:
+
+```{r}
+head(playstore,10)
+```
+
+
+
+
+
+
+
+## Clean up of the dataset
+
+Cleanups:
+
+* Removing line 10473 because it has a rating of 19. And it is most likely false data
+* Making reviews, size and price vectors to numeric vectors
+
+```{r,results='hide'}
+
+#The first abnormality is line 10473. I think it is faulty:
+#rating is by 19 and price is everyone and size is 1,000+
+#so we delete this line:
+playstore[10473,]
+playstore<- playstore[-10473,]
+
+
+#Making the Reviews column a numeric column:
+str(playstore$Reviews)
+playstore$Reviews<-as.numeric(playstore$Reviews)
+
+
+
+#To replace 1.5k with 1500
+#we need the following library to do this transformation:
+#install.packages("stringr")
+library("stringr")
+nonDecimalVec<-stringr::str_extract(string = playstore$Size,pattern ="\\.([0-9])*")
+
+
+#Replace NAs with empty string , so we have an easier
+#job, when we use paste function later
+nonDecimalVec[is.na(nonDecimalVec)]<-"" 
+playstore$Size<-sub(pattern = "\\.[0-9]*k","000",playstore$Size)
+playstore$Size<-sub(pattern = "\\.[0-9]*M","000000",playstore$Size)
+
+
+#Finally: adding the fractions back to the number
+#An example: 1.05k= (1+0.05)*1000:
+vsel<-nonDecimalVec!=""
+temp_size<-(as.numeric(playstore$Size[vsel]))
+temp_size2<-rep(1,sum(vsel))
+temp_size3<-as.numeric(nonDecimalVec[vsel])
+temp_size4<-temp_size2+temp_size3
+temp_size<-temp_size4*temp_size
+playstore$Size[vsel]<-temp_size
+
+
+#To replace the likes of 10k with 1000 or m with 1000000:
+playstore$Size<-sub(pattern = "k","000",playstore$Size)
+playstore$Size<-sub(pattern = "M","000000",playstore$Size)
+
+
+#Size also contains the string: "Varies with device"
+#So we should be carful about that!
+playstore$Size[playstore$Size=="Varies with device"]<-NA
+playstore$Size<-as.numeric(playstore$Size)
+
+
+#Cleaning the price:
+str(playstore$Price)
+playstore$Price<-sub(pattern = "\\$", replacement = "", x = playstore$Price)
+playstore$Price<-as.numeric(playstore$Price)
+
+
+
+
+
+#I removed the following line because we don't want to 
+#lose information, forexmpale if an app doesn't have 
+#ratings, it could be that it was downloaded very
+#little.
+#playstore<-playstore[complete.cases(playstore), ]
+```
+## Right Skewd Distributions
+
+We can not produce informative Plots using very right skewed distributions:
+
+```{r}
+library(ggplot2)
+
+ggplot(data=playstore)+geom_histogram(aes(x=Reviews),binwidth = 100000)
+
+```
+
+
+
+One possible solution: Introduction of new categorial Variables:
+```{r,results='hide'}
+#Review Factor
+reviewCut<-cut(playstore$Reviews,breaks = c(0,1000,10000,100000,80000000))
+playstore$reviewCut<-factor(reviewCut,levels = levels(reviewCut),labels = c("0+","1000+","10k+","100k+"),ordered = T)
+playstore$reviewSuperCut<-factor(reviewCut,levels = levels(reviewCut),labels = c("0+","1000+","10k+","10k+"),ordered = T)
+
+#Price Factor
+priceCut<-cut(playstore$Price,breaks = c(0,10,30,500))
+playstore$priceCut<-factor(priceCut,levels = levels(priceCut),labels = c("0+","10+","30+"),ordered = T)
+playstore$priceSuperCut<-factor(priceCut,levels = levels(priceCut),labels = c("0+","10+","10+"),ordered = T)
+
+#Installs Preprocessing and Installs Factor
+Installs_<-sub(pattern = "\\+", replacement = "", x = playstore$Installs)
+Installs_<-gsub(pattern = ",", replacement = "", x = Installs_)
+Installs_<-as.numeric(Installs_)
+installsCut<-cut(Installs_,breaks = c(0,1e+5,5e+05,1e+06,5e+06,1e+07,5e+07,1e+08,5e+08,1e+09))
+insatllsCut<-factor(installsCut,levels = levels(installsCut),ordered = T)
+levels(installsCut)<-c("0+","100k+","500k+","1m+","5m+","10m+","50m+","100m+","500m+")
+playstore$installsCut<-insatllsCut
+installsCut<-cut(Installs_,breaks = c(0,1e+2,1e+03,1e+04,1e+05,5e+05,5e+07,1e+08,5e+08,1e+09))
+playstore$installsSuperCut<-factor(installsCut,levels = levels(installsCut),ordered = T)
+levels(installsCut)<-c("0+","100+","1k+","10k+","50k+","50k+","50k+","50k+","50k+")
+
+#Ratings Factor
+ratingCut<-cut(playstore$Rating,breaks = c(0.99,1.99,2.99,3.49,3.99,5))
+ratingCut<-factor(ratingCut,levels = levels(ratingCut),labels = c("1+","2+","3+","3.5+","4+"),ordered = T)
+playstore$ratingCut<-ratingCut
+
+#Category Factor
+playstore$categoryCut<-factor(playstore$Category,levels =names(sort(table(playstore$Category),decreasing = T)) )
+tmp<-head(levels(playstore$categoryCut),10)
+playstore$categoryCut<-factor(playstore$categoryCut,labels = append(tmp,rep("other",23),after = length(tmp)))
+
+```
+
+
+## Interesting numbers and tables
+
+
+
+### Means of 4 Variables:
+```{r}
+mean_table<-colMeans(playstore[,c("Rating","Reviews","Size","Price")],na.rm = T)
+mean_table
+```
+### mean of Installs variable:
+```{r}
+
+Installs_mean<-mean(Installs_)
+Installs_mean
+```
+
+### Quntiles of Reviews
+```{r}
+quantile(playstore$Reviews,probs = c(0.25,0.5,0.75),type=7)
+```
+
+
+### Applications with most number of Reviews:
+```{r,echo=FALSE}
+#we group by app, because there are many duplicates:
+#230 lines in the dataset are exactly the same 
+grouped_by_app<-aggregate(Reviews~App,data=playstore,FUN = mean)
+vsel<-head(order(grouped_by_app$Reviews,decreasing=T),20)
+grouped_by_app[vsel,]
+```
+### Application with most number of installs:
+```{r}
+grouped_by_app<-aggregate(Installs_~App,data=playstore,FUN = mean)
+vsel<-head(order(grouped_by_app$Installs_,decreasing=T),20)
+grouped_by_app[vsel,]
+```
+
+
+## Distributions
+Below we see the distributions of Ratings and Size: 
+```{r}
+library(ggplot2)
+hist((playstore$Rating[!is.na(playstore$Rating)]),xlab = "between 1 and 5",main = "Ratings",breaks = 20,ylab="count")
+par(mar=c(10,3,1,1))
+
+
+ggplot(data = playstore[!is.na(playstore$Size),],aes(x=Size))+geom_histogram(binwidth = 1000000)+ggtitle("Size Distribution")+xlab("Size [Bytes]")
+
+
+```
+
+Conclusions:
+
+From the ratings, it appears that people are tend to give ratings in the range of 3 to 5. And the more reviews
+an app has, the better is its rating.
+
+From the sizes, it appears that most apps tend to be below 20 MB in size. And the most size intensive apps
+are mostly games.
+
+
+
+
+Are paid apps or free apps the most frequent?
+```{r}
+pie(table(playstore$Type),col = rainbow(2))
+```
+
+
+The most frequent category among the apps:
+```{r}
+ggplot(playstore,aes(x=Category))+geom_bar()+
+   guides(x = guide_axis(angle = 90))+ggtitle("Category Frequency")
+```     
+        
+## Relationships between Columns
+
+### Review Vs Price
+Which price and review range contains the most apps?
+```{r}
+
+library(ggmosaic)
+playstore_complete=playstore[complete.cases(playstore),]
+ggplot(playstore_complete)+geom_mosaic(aes(x=product(priceCut,reviewCut),fill=reviewCut),offset = 0.05)+scale_fill_manual(values = c("green","black","blue","red"))+theme(axis.text.x = element_text(angle = 90),strip.text.x = element_text(angle = 90))+ggtitle("Reviews for each Price")+xlab("Reviews")+ylab("Price")+guides(fill=guide_legend(title="Reviews"))
+
+
+```
+
+
+
+The exact percentages for the above Mosaic Plot:
+
+```{r}
+prop.table(table(priceCut,reviewCut))
+```
+
+
+Conclusion:
+
+Most (61%) of the apps are [0,10) dollars and have [0,1000) Review
+
+
+### Installs per Category
+Category with most number of installs. The following is a summary (aggregate) plot:
+```{r}
+
+par(xpd=T,mar=c(12,4,3,5))
+install_cat_table<-aggregate(Installs_~Category,data = playstore,FUN=sum)
+vsel<-order(install_cat_table[,2],decreasing=T)
+tab.agg<-install_cat_table[,2]
+names(tab.agg)<-install_cat_table[,1]
+
+df.bar<-barplot(tab.agg[vsel],las=3,cex.names = 0.6,ylab = "Number of Installs",main="Installs per Category")
+par(cex=1)
+mtext(text = "Categories",side = 1,line = 9)
+```
+
+
+
+
+
+
+
+
+### Reviews Vs Rating
+What is the distribution of reviews for each rating? 
+```{r}
+
+ggplot(subset(playstore,!is.na(ratingCut)),aes(x=ratingCut, fill=reviewCut))+
+         geom_bar(position = "stack")+ggtitle("Reviews per Rating")+
+  xlab("Ratings")+guides(fill=guide_legend(title="Review Categories"))
+
+```
+
+Conclusions:
+
+We don't see many apps in the 3.5- rating range that have more than 100k Reviews.
+
+We also see that most apps have 4+ rating.
+
+
+
+### Category vs Size
+The most size intensive category is Game, followed by family:
+```{r}
+
+ggplot(data =playstore[!is.na(playstore$Size),],aes(x=Category,y=Size))+geom_boxplot(colour="black",alpha=0.)+scale_x_discrete(guide = guide_axis(angle = 90))+ggtitle( "Size per Category")
+```
+
+
+### Price and Rating per Install category 
+
+```{r}
+playstore_complete=playstore[complete.cases(playstore),]
+ggplot(playstore_complete,aes(x=installsSuperCut,y=Size,fill=priceSuperCut))+geom_boxplot()+xlab("Installs")+ylab("Rating")+guides(fill=guide_legend(title="Prices"))+theme(axis.text.x = element_text(angle = 90))+ggtitle("Price and Rating per Install category")
+
+
+
+
+ggplot(playstore_complete)+geom_mosaic(aes(x=product(ratingCut,priceSuperCut),fill=priceSuperCut),offset = 0.05)+facet_grid (~installsSuperCut,switch = "both")+scale_fill_manual(values = c("green","black","blue"))+theme(strip.text.x = element_text(angle = 90))+ggtitle("Price and Rating per Install category")+xlab("Price")+ylab("Rating")+guides(fill=guide_legend(title="Prices"))
+
+```
+
+Conclusion:
+
+As the number of installs increases for an app, it tends to have less bad ratings. From 0+ to 100+ Installs, the number of paid apps increases. But from 100+ Installs forward, as the number of installs grows for an app, that app belongs less likely to the category of paid apps.
+
+
+
+
+## Inferences and Conclusions
+### In this notebook we did Exploratory Data Analysis on Google Play Store Apps datset. We drew interesting inferences from this dataset:
+
+***
+
+* Based on the dataset we can infer that most of the Apps in play store belongs to Family and Gaming categories followed by Tools, Medical and Business.
+
+* Also based on the type metric it seems that only 7% of apps are paid and around 93% of apps are free to install.
+
+* From the ratings, it appears that people are tend to give ratings in the range of 3 to 5. And the more reviews
+an app has, the better is its rating.
+
+* From the sizes, it appears that most apps tend to be below 20 MB in size. And the most size intensive apps
+are mostly games.
+
+* Based on the popularity, the apps in Gaming category were installed most number of time followed by Communication, Productivity and Social.
+
+* Based on the number of installs, the Facebook app installed most number of time followed by Gmail.
+
+* Based on the reviews, Facebook, WhatsApp and Instagram has most no of Reviews in Google play store.
+
+* Most (61%) of the apps are [0,10) dollars and have [0,1000) Review
+
+
+* As the number of installs increases for an app, it tends to have less bad ratings. From 0+ to 100+ Installs, the number of paid apps increases. But from 100+ Installs forward, as the number of installs grows for an app, that app belongs less likely to the category of paid apps.
+
+
